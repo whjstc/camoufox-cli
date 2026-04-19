@@ -64,7 +64,7 @@ describe("e2e", { timeout: 120_000 }, () => {
   beforeAll(async () => {
     const server = new DaemonServer({
       session: TEST_SESSION,
-      headless: true,
+      displayMode: "headless",
       timeout: 300,
     });
     serverPromise = server.start();
@@ -203,7 +203,7 @@ describe("e2e close shuts down daemon", { timeout: 30_000 }, () => {
   it("close command stops daemon", async () => {
     const session = `e2e-close-${process.pid}-${Date.now()}`;
     const sockPath = `/tmp/camoufox-cli-${session}.sock`;
-    const server = new DaemonServer({ session, headless: true, timeout: 60 });
+    const server = new DaemonServer({ session, displayMode: "headless", timeout: 60 });
     const promise = server.start();
     await waitForSocket(sockPath);
 

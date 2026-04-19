@@ -24,7 +24,7 @@ describe("DaemonServer", () => {
   it("constructs with custom options", () => {
     const server = new DaemonServer({
       session: "custom",
-      headless: false,
+      displayMode: "headed",
       timeout: 60,
     });
     expect(server).toBeDefined();

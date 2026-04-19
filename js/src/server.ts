@@ -2,13 +2,15 @@
 
 import * as net from "node:net";
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { BrowserManager } from "./browser.js";
 import { execute } from "./commands.js";
 import { parseCommand, serializeResponse } from "./protocol.js";
+import type { DisplayMode } from "./types.js";
 
 export class DaemonServer {
   private session: string;
-  private headless: boolean;
+  private displayMode: DisplayMode;
   private timeout: number;
   private socketPath: string;
   private pidPath: string;
@@ -16,10 +18,11 @@ export class DaemonServer {
   private server: net.Server | null = null;
   private lastActivity = Date.now();
   private watchdogTimer: ReturnType<typeof setInterval> | null = null;
+  private isShuttingDown = false;
 
-  constructor(opts: { session?: string; headless?: boolean; timeout?: number; persistent?: string | null }) {
+  constructor(opts: { session?: string; displayMode?: DisplayMode; timeout?: number; persistent?: string | null }) {
     this.session = opts.session ?? "default";
-    this.headless = opts.headless ?? true;
+    this.displayMode = opts.displayMode ?? "headless";
     this.timeout = opts.timeout ?? 1800;
     this.socketPath = `/tmp/camoufox-cli-${this.session}.sock`;
     this.pidPath = `/tmp/camoufox-cli-${this.session}.pid`;
@@ -37,9 +40,21 @@ export class DaemonServer {
       }
     }, 10000);
 
-    // Signal handlers
-    process.on("SIGTERM", () => { this.server?.close(); });
-    process.on("SIGINT", () => { this.server?.close(); });
+    // Signal handlers — all trigger graceful shutdown
+    const gracefulShutdown = (signal: string) => {
+      if (this.isShuttingDown) return;
+      this.isShuttingDown = true;
+      process.stderr.write(`[camoufox-cli] Received ${signal}, shutting down\n`);
+      this.server?.close();
+      // Force exit after 5s if graceful shutdown hangs
+      setTimeout(() => {
+        process.stderr.write("[camoufox-cli] Force exit after timeout\n");
+        process.exit(0);
+      }, 5000);
+    };
+    process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+    process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+    process.on("SIGHUP", () => gracefulShutdown("SIGHUP"));
 
     this.server = net.createServer({ allowHalfOpen: true }, (conn) => this.handleConnection(conn));
 
@@ -76,7 +91,7 @@ export class DaemonServer {
         const command = parseCommand(line);
 
         if (command.action === "open") {
-          command.params.headless ??= this.headless;
+          command.params.headless ??= this.displayMode === "headless" ? true : this.displayMode === "headed" ? false : "virtual";
         }
 
         const response = await execute(this.manager, command as any);
@@ -107,11 +122,20 @@ export class DaemonServer {
           process.stderr.write(`[camoufox-cli] Daemon already running (pid ${pid})\n`);
           process.exit(1);
         } catch {
-          // Stale pid, clean up
+          // Stale pid — kill any remaining browser processes for this session
+          try {
+            const stalePid = parseInt(fs.readFileSync(this.pidPath, "utf-8").trim(), 10);
+            try { process.kill(-stalePid, "SIGKILL"); } catch {}
+            process.stderr.write(`[camoufox-cli] Killed stale daemon process group ${stalePid}\n`);
+          } catch {}
         }
       }
       fs.unlinkSync(this.socketPath);
     }
+    // Clean stale pid file
+    try { fs.unlinkSync(this.pidPath); } catch {}
+    // Clean profile lock files if persistent mode
+    this.cleanupProfileLocks();
   }
 
   private writePid(): void {
@@ -121,11 +145,37 @@ export class DaemonServer {
   private async shutdown(): Promise<void> {
     if (this.watchdogTimer) clearInterval(this.watchdogTimer);
     await this.manager.close();
+    this.cleanupProfileLocks();
     if (this.server) {
       try { this.server.close(); } catch {}
     }
     for (const p of [this.socketPath, this.pidPath]) {
       try { fs.unlinkSync(p); } catch {}
+    }
+  }
+
+  /** Synchronous cleanup — called from process.on("exit") as last resort. */
+  syncCleanup(): void {
+    // Remove socket and pid files
+    for (const p of [this.socketPath, this.pidPath]) {
+      try { fs.unlinkSync(p); } catch {}
+    }
+    // Remove profile lock files
+    this.cleanupProfileLocks();
+  }
+
+  /** Clean Firefox profile lock files for persistent sessions. */
+  private cleanupProfileLocks(): void {
+    const profileDir = this.manager.getPersistentDir();
+    if (!profileDir) return;
+    for (const name of [".parentlock", "lock"]) {
+      try {
+        const p = path.join(profileDir, name);
+        if (fs.existsSync(p)) {
+          fs.unlinkSync(p);
+          process.stderr.write(`[camoufox-cli] Cleaned lock: ${p}\n`);
+        }
+      } catch {}
     }
   }
 }

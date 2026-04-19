@@ -25,7 +25,7 @@ const cmdOpen: Handler = async (manager, cmdId, params) => {
   if (!url) return errorResponse(cmdId, "Missing 'url' parameter");
 
   if (!manager.isRunning) {
-    await manager.launch(params.headless as boolean ?? true);
+    await manager.launch((params.headless === undefined ? "headless" : params.headless === true ? "headless" : params.headless === false ? "headed" : "virtual") as any);
   }
 
   try {
@@ -34,7 +34,7 @@ const cmdOpen: Handler = async (manager, cmdId, params) => {
   } catch (e: any) {
     if (String(e).includes("has been closed")) {
       await manager.close();
-      await manager.launch(params.headless as boolean ?? true);
+      await manager.launch((params.headless === undefined ? "headless" : params.headless === true ? "headless" : params.headless === false ? "headed" : "virtual") as any);
       const page = manager.getPage();
       await page.goto(url, { waitUntil: "domcontentloaded" });
     } else {
