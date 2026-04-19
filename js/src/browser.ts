@@ -1,9 +1,13 @@
 /** Browser manager: launches and manages Camoufox instance. */
 
 import { execFileSync } from "node:child_process";
+import * as os from "node:os";
+import * as path from "node:path";
+import * as fs from "node:fs";
 import { Camoufox, launchOptions } from "camoufox-js";
 import { firefox, type Browser, type BrowserContext, type Page } from "playwright-core";
 import { RefRegistry } from "./refs.js";
+import type { DisplayMode } from "./types.js";
 
 function ensureBrowserInstalled(): void {
   try {
@@ -28,18 +32,24 @@ export class BrowserManager {
     this.persistent = persistent;
   }
 
-  async launch(headless: boolean = true): Promise<void> {
+  async launch(displayMode: DisplayMode = "headless"): Promise<void> {
     if (this.browser || this.context) return;
 
     ensureBrowserInstalled();
 
+    if (displayMode === "virtual" && os.platform() !== "linux") {
+      throw new Error("Display mode 'virtual' is only supported on Linux.");
+    }
+
+    const headless = displayMode === "headless" ? true : displayMode === "headed" ? false : "virtual";
+
     if (this.persistent) {
-      const opts = await launchOptions({ headless });
-      this.context = await firefox.launchPersistentContext(this.persistent, opts);
+      const opts = await launchOptions({ headless } as any);
+      this.context = await firefox.launchPersistentContext(this.persistent, opts as any);
       const pages = this.context.pages();
       this.page = pages[0] || await this.context.newPage();
     } else {
-      this.browser = await Camoufox({ headless }) as Browser;
+      this.browser = await Camoufox({ headless } as any) as Browser;
       this.page = await this.browser.newPage();
       this.context = this.page.context();
     }
@@ -118,14 +128,20 @@ export class BrowserManager {
   }
 
   async close(): Promise<void> {
-    if (this.browser) {
-      try { await this.browser.close(); } catch {}
-      this.browser = null;
+    try {
+      if (this.browser) {
+        await this.browser.close();
+      }
+      if (this.context && !this.browser) {
+        // persistent context: close context directly
+        await this.context.close();
+      }
+    } catch (e: any) {
+      process.stderr.write(`[camoufox-cli] Browser close error (non-fatal): ${e}\n`);
+      // If normal close fails, clean up locks so next launch doesn't get stuck
+      this.forceCleanLocks();
     }
-    if (this.context && !this.browser) {
-      // persistent context: close context directly
-      try { await this.context.close(); } catch {}
-    }
+    this.browser = null;
     this.context = null;
     this.page = null;
     this.history = [];
@@ -134,5 +150,21 @@ export class BrowserManager {
 
   get isRunning(): boolean {
     return this.browser !== null || this.context !== null;
+  }
+
+  /** Return persistent profile directory path (for lock cleanup). */
+  getPersistentDir(): string | null {
+    return this.persistent;
+  }
+
+  /** Force-clean profile lock files (for crash recovery). */
+  private forceCleanLocks(): void {
+    if (!this.persistent) return;
+    for (const name of [".parentlock", "lock"]) {
+      try {
+        const p = path.join(this.persistent, name);
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+      } catch {}
+    }
   }
 }

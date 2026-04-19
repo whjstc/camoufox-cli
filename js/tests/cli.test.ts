@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { buildCommand, getSocketPath } from "../src/cli.js";
+import { buildCommand, getSocketPath, isDirectRun, parseArgs } from "../src/cli.js";
 
 // buildCommand calls process.exit on error; mock it to throw instead
 beforeEach(() => {
@@ -7,6 +7,7 @@ beforeEach(() => {
     throw new Error(`process.exit(${code})`);
   });
   vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  vi.spyOn(console, "log").mockImplementation(() => {});
 });
 
 describe("buildCommand", () => {
@@ -264,5 +265,52 @@ describe("getSocketPath", () => {
 
   it("custom session", () => {
     expect(getSocketPath("my-session")).toBe("/tmp/camoufox-cli-my-session.sock");
+  });
+});
+
+describe("isDirectRun", () => {
+  it("matches the module path directly", () => {
+    expect(isDirectRun("/tmp/cli.js", "file:///tmp/cli.js")).toBe(true);
+  });
+
+  it("matches a symlinked bin path to the real module", () => {
+    const fakeRealpath = (input: string) => {
+      if (String(input) === "/opt/homebrew/bin/camoufox-cli") return "/usr/local/lib/node_modules/camoufox-cli/dist/cli.js";
+      if (String(input) === "/usr/local/lib/node_modules/camoufox-cli/dist/cli.js") return "/usr/local/lib/node_modules/camoufox-cli/dist/cli.js";
+      return String(input);
+    };
+
+    expect(isDirectRun("/opt/homebrew/bin/camoufox-cli", "file:///usr/local/lib/node_modules/camoufox-cli/dist/cli.js", fakeRealpath)).toBe(true);
+  });
+
+  it("returns false for a different executable", () => {
+    expect(isDirectRun("/tmp/other.js", "file:///tmp/cli.js")).toBe(false);
+  });
+});
+
+describe("parseArgs", () => {
+  it("--help exits with usage", () => {
+    expect(() => parseArgs(["--help"])).toThrow("process.exit(1)"); // Note: parseArgs calls exit(1) on usage currently if no rest args
+  });
+
+  it("defaults to headless mode", () => {
+    const { flags, command } = parseArgs(["open", "https://example.com"]);
+    expect(flags.displayMode).toBe("headless");
+    expect(command.action).toBe("open");
+  });
+
+  it("supports --headed alias", () => {
+    const { flags } = parseArgs(["--headed", "open", "https://example.com"]);
+    expect(flags.displayMode).toBe("headed");
+  });
+
+  it("supports --display-mode virtual", () => {
+    const { flags } = parseArgs(["--display-mode", "virtual", "open", "https://example.com"]);
+    expect(flags.displayMode).toBe("virtual");
+  });
+
+  it("rejects invalid --display-mode", () => {
+    expect(() => parseArgs(["--display-mode", "bad", "open", "https://example.com"])).toThrow("process.exit(1)");
+    expect(process.stderr.write).toHaveBeenCalled();
   });
 });
