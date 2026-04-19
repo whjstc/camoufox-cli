@@ -110,6 +110,13 @@ describe("buildCommand", () => {
     expect((cmd.params as any).key).toBe("Enter");
   });
 
+  it("upload", () => {
+    const cmd = buildCommand("upload", ["upload", "@e1", "test.txt"]);
+    expect(cmd.action).toBe("upload");
+    expect((cmd.params as any).ref).toBe("@e1");
+    expect((cmd.params as any).path).toBe("test.txt");
+  });
+
   // --- Data extraction ---
   it("text", () => {
     const cmd = buildCommand("text", ["text", "@e1"]);

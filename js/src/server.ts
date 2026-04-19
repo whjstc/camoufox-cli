@@ -20,13 +20,13 @@ export class DaemonServer {
   private watchdogTimer: ReturnType<typeof setInterval> | null = null;
   private isShuttingDown = false;
 
-  constructor(opts: { session?: string; displayMode?: DisplayMode; timeout?: number; persistent?: string | null }) {
+  constructor(opts: { session?: string; displayMode?: DisplayMode; timeout?: number; persistent?: string | null; proxy?: string | null; geoip?: boolean; locale?: string | null }) {
     this.session = opts.session ?? "default";
     this.displayMode = opts.displayMode ?? "headless";
     this.timeout = opts.timeout ?? 1800;
     this.socketPath = `/tmp/camoufox-cli-${this.session}.sock`;
     this.pidPath = `/tmp/camoufox-cli-${this.session}.pid`;
-    this.manager = new BrowserManager(opts.persistent ?? null);
+    this.manager = new BrowserManager(opts.persistent ?? null, opts.proxy ?? null, opts.geoip ?? true, opts.locale ?? null);
   }
 
   async start(): Promise<void> {

@@ -27,24 +27,22 @@ const locale = args.includes("--locale") ? getArg("--locale", "") || null : null
 
 const server = new DaemonServer({ session, displayMode, timeout, persistent, proxy, geoip, locale });
 
-// ✅ Last-resort synchronous cleanup on ANY exit (including process.exit, uncaught, SIGKILL aftermath)
-process.on("exit", () => {
-  server.syncCleanup();
-});
-
-// ✅ Catch uncaught exceptions and unhandled rejections — prevent silent zombie
+// Catch uncaught exceptions and unhandled rejections — clean up before exit
 process.on("uncaughtException", (err) => {
   process.stderr.write(`[camoufox-cli] Uncaught exception: ${err}\n`);
-  process.exit(1); // triggers "exit" handler above
+  server.syncCleanup();
+  process.exit(1);
 });
 
 process.on("unhandledRejection", (reason) => {
   process.stderr.write(`[camoufox-cli] Unhandled rejection: ${reason}\n`);
+  server.syncCleanup();
   process.exit(1);
 });
 
 process.stderr.write(`[camoufox-cli] Starting daemon session=${session} displayMode=${displayMode}\n`);
 server.start().catch((err) => {
   process.stderr.write(`[camoufox-cli] Fatal: ${err}\n`);
+  server.syncCleanup();
   process.exit(1);
 });

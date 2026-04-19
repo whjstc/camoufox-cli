@@ -163,6 +163,15 @@ const cmdPress: Handler = async (manager, cmdId, params) => {
   return okResponse(cmdId);
 };
 
+const cmdUpload: Handler = async (manager, cmdId, params) => {
+  const refStr = params.ref as string;
+  const filePath = params.path as string;
+  if (!refStr) return errorResponse(cmdId, "Missing 'ref' parameter");
+  if (!filePath) return errorResponse(cmdId, "Missing 'path' parameter");
+  await resolveRef(manager, refStr).setInputFiles(filePath);
+  return okResponse(cmdId);
+};
+
 // ---------------------------------------------------------------------------
 // Data extraction
 // ---------------------------------------------------------------------------
@@ -325,6 +334,7 @@ const HANDLERS: Record<string, Handler> = {
   check: cmdCheck,
   hover: cmdHover,
   press: cmdPress,
+  upload: cmdUpload,
   text: cmdText,
   eval: cmdEval,
   screenshot: cmdScreenshot,
