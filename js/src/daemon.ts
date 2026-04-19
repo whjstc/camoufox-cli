@@ -21,8 +21,11 @@ if (!DISPLAY_MODES.has(displayModeArg as DisplayMode)) {
 const displayMode = displayModeArg as DisplayMode;
 const timeout = parseInt(getArg("--timeout", "1800"), 10);
 const persistent = args.includes("--persistent") ? getArg("--persistent", "") || null : null;
+const proxy = args.includes("--proxy") ? getArg("--proxy", "") || null : null;
+const geoip = !args.includes("--no-geoip");
+const locale = args.includes("--locale") ? getArg("--locale", "") || null : null;
 
-const server = new DaemonServer({ session, displayMode, timeout, persistent });
+const server = new DaemonServer({ session, displayMode, timeout, persistent, proxy, geoip, locale });
 
 // ✅ Last-resort synchronous cleanup on ANY exit (including process.exit, uncaught, SIGKILL aftermath)
 process.on("exit", () => {

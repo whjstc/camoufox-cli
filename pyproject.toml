@@ -1,7 +1,7 @@
 [project]
 name = "camoufox-cli"
-version = "0.1.8"
-description = "Anti-detect browser CLI for AI agents, powered by Camoufox"
+version = "0.3.0"
+description = "Anti-detect browser CLI & Skills for AI agents, powered by Camoufox"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [{ name = "Benn Huang" }]
@@ -38,4 +38,9 @@ packages = ["src/camoufox_cli"]
 [tool.pytest.ini_options]
 markers = [
     "integration: tests that launch a real browser (slow, requires camoufox)",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
 ]

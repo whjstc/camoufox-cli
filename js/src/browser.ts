@@ -6,6 +6,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { Camoufox, launchOptions } from "camoufox-js";
 import { firefox, type Browser, type BrowserContext, type Page } from "playwright-core";
+import { parseProxySettings } from "./proxy.js";
 import { RefRegistry } from "./refs.js";
 import type { DisplayMode } from "./types.js";
 
@@ -25,11 +26,17 @@ export class BrowserManager {
   private context: BrowserContext | null = null;
   private page: Page | null = null;
   private persistent: string | null;
+  private proxy: string | null;
+  private geoip: boolean;
+  private locale: string | null;
   private history: string[] = [];
   private historyIndex = -1;
 
-  constructor(persistent: string | null = null) {
+  constructor(persistent: string | null = null, proxy: string | null = null, geoip: boolean = true, locale: string | null = null) {
     this.persistent = persistent;
+    this.proxy = proxy;
+    this.geoip = geoip;
+    this.locale = locale;
   }
 
   async launch(displayMode: DisplayMode = "headless"): Promise<void> {
@@ -43,15 +50,46 @@ export class BrowserManager {
 
     const headless = displayMode === "headless" ? true : displayMode === "headed" ? false : "virtual";
 
+    const launchOpts: Record<string, unknown> = { headless };
+    let proxySettings: { server: string; username?: string; password?: string } | null = null;
+
+    if (this.proxy) {
+      const settings = parseProxySettings(this.proxy);
+      proxySettings = settings.proxy;
+      launchOpts.proxy = settings.proxy;
+      if (this.geoip) {
+        launchOpts.geoip = true;
+      }
+    }
+
+    if (this.locale) {
+      // Accept "en-US" or a comma-separated list "en-US,en,zh-CN".
+      const locales = this.locale.split(",").map((s) => s.trim()).filter(Boolean);
+      if (locales.length > 0) {
+        launchOpts.locale = locales.length > 1 ? locales : locales[0];
+      }
+    }
+
     if (this.persistent) {
-      const opts = await launchOptions({ headless } as any);
+      const opts = await launchOptions(launchOpts as any);
       this.context = await firefox.launchPersistentContext(this.persistent, opts as any);
       const pages = this.context.pages();
       this.page = pages[0] || await this.context.newPage();
     } else {
-      this.browser = await Camoufox({ headless } as any) as Browser;
+      this.browser = await Camoufox(launchOpts as any) as Browser;
       this.page = await this.browser.newPage();
       this.context = this.page.context();
+    }
+
+    // Workaround: Playwright's Firefox (Juggler) fails proxy auth on HTTPS
+    // CONNECT tunnels, raising NS_ERROR_PROXY_AUTHENTICATION_FAILED.
+    // Inject Basic auth as an extra HTTP header like WebKit/Chromium do.
+    if (proxySettings?.username) {
+      const creds = `${proxySettings.username}:${proxySettings.password ?? ""}`;
+      const token = Buffer.from(creds, "utf8").toString("base64");
+      await this.context.setExtraHTTPHeaders({
+        "Proxy-Authorization": `Basic ${token}`,
+      });
     }
   }
 

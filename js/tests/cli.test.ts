@@ -290,13 +290,37 @@ describe("isDirectRun", () => {
 
 describe("parseArgs", () => {
   it("--help exits with usage", () => {
-    expect(() => parseArgs(["--help"])).toThrow("process.exit(1)"); // Note: parseArgs calls exit(1) on usage currently if no rest args
+    expect(() => parseArgs(["--help"])).toThrow("process.exit(1)");
   });
 
-  it("defaults to headless mode", () => {
-    const { flags, command } = parseArgs(["open", "https://example.com"]);
+  it("defaults", () => {
+    const { flags } = parseArgs(["open", "https://example.com"]);
+    expect(flags.session).toBe("default");
     expect(flags.displayMode).toBe("headless");
-    expect(command.action).toBe("open");
+    expect(flags.timeout).toBe(1800);
+    expect(flags.json).toBe(false);
+    expect(flags.persistent).toBeNull();
+    expect(flags.proxy).toBeNull();
+    expect(flags.geoip).toBe(true);
+  });
+
+  it("--no-geoip flag", () => {
+    const { flags } = parseArgs(["--no-geoip", "open", "https://example.com"]);
+    expect(flags.geoip).toBe(false);
+  });
+
+  it("--proxy flag", () => {
+    const { flags } = parseArgs(["--proxy", "http://127.0.0.1:8080", "open", "https://example.com"]);
+    expect(flags.proxy).toBe("http://127.0.0.1:8080");
+  });
+
+  it("--proxy with auth", () => {
+    const { flags } = parseArgs(["--proxy", "http://user:pass@host:8080", "open", "https://example.com"]);
+    expect(flags.proxy).toBe("http://user:pass@host:8080");
+  });
+
+  it("--proxy missing value exits", () => {
+    expect(() => parseArgs(["--proxy"])).toThrow("process.exit");
   });
 
   it("supports --headed alias", () => {
@@ -312,5 +336,10 @@ describe("parseArgs", () => {
   it("rejects invalid --display-mode", () => {
     expect(() => parseArgs(["--display-mode", "bad", "open", "https://example.com"])).toThrow("process.exit(1)");
     expect(process.stderr.write).toHaveBeenCalled();
+  });
+
+  it("--locale flag", () => {
+    const { flags } = parseArgs(["--locale", "en-US,zh-CN", "open", "https://example.com"]);
+    expect(flags.locale).toBe("en-US,zh-CN");
   });
 });

@@ -1,6 +1,6 @@
 # camoufox-cli
 
-Anti-detect browser CLI for AI agents, powered by [Camoufox](https://github.com/daijro/camoufox).
+Anti-detect browser CLI & Skills for AI agents, powered by [Camoufox](https://github.com/daijro/camoufox).
 
 ### Highlights
 
@@ -14,6 +14,12 @@ Anti-detect browser CLI for AI agents, powered by [Camoufox](https://github.com/
 OpenClaw, Claude Code, Cursor, Codex, and any agent that can run shell commands.
 
 ## Install
+
+Tell your AI agent (e.g. OpenClaw):
+
+> Install this CLI and skills from https://github.com/Bin-Huang/camoufox-cli
+
+Or install manually:
 
 ```bash
 npm install -g camoufox-cli
@@ -35,9 +41,8 @@ camoufox-cli install --with-deps
 
 ### Agent Skill
 
-Install as an [agent skill](https://github.com/vercel-labs/skills) so AI agents (OpenClaw, Claude Code, Cursor, Codex, etc.) automatically use camoufox-cli for anti-detect browser tasks:
-
 ```bash
+# Add skills for AI agents (Claude Code, Cursor, Codex, etc.)
 npx skills add Bin-Huang/camoufox-cli
 ```
 
@@ -100,7 +105,7 @@ camoufox-cli press "Control+a"            # Key combination
 camoufox-cli text @e1                     # Get text content of element
 camoufox-cli text body                    # Get all page text
 camoufox-cli eval "document.title"        # Execute JavaScript
-camoufox-cli screenshot                   # Screenshot (base64 to stdout)
+camoufox-cli screenshot                   # Screenshot (JSON with base64)
 camoufox-cli screenshot page.png          # Screenshot to file
 camoufox-cli screenshot --full page.png   # Full page screenshot
 ```
@@ -146,7 +151,10 @@ camoufox-cli cookies export file.json     # Export cookies
 --headed               Show browser window (default: headless)
 --timeout <seconds>    Daemon idle timeout (default: 1800)
 --json                 Output as JSON
---persistent <path>    Use persistent browser profile directory
+--persistent [path]    Use persistent browser profile (default: ~/.camoufox-cli/profiles/<session>)
+--proxy <url>          Proxy server (http:// or https://; auth: http://user:pass@host:port)
+--no-geoip             Disable automatic GeoIP spoofing (auto-enabled with --proxy)
+--locale <tag>         Force browser locale (e.g. "en-US" or "en-US,zh-CN")
 ```
 
 ## Architecture
@@ -157,6 +165,24 @@ CLI (camoufox-cli)  ──Unix socket──▶  Daemon (Python)  ──Playwrigh
 
 The CLI sends JSON commands to a long-running daemon process via Unix socket. The daemon manages the Camoufox browser instance and maintains the ref registry between commands. The daemon auto-starts on the first command and auto-stops after 30 minutes of inactivity.
 
+## Related
+
+- [google-analytics-cli](https://github.com/Bin-Huang/google-analytics-cli) -- Google Analytics CLI & Skills for AI agents (and humans)
+- [google-search-console-cli](https://github.com/Bin-Huang/google-search-console-cli) -- Google Search Console CLI & Skills for AI agents (and humans)
+- [youtube-analytics-cli](https://github.com/Bin-Huang/youtube-analytics-cli) -- YouTube Analytics CLI & Skills for AI agents (and humans)
+- [x-analytics-cli](https://github.com/Bin-Huang/x-analytics-cli) -- X Analytics CLI & Skills for AI agents (and humans)
+- [google-ads-open-cli](https://github.com/Bin-Huang/google-ads-open-cli) -- Google Ads CLI & Skills for AI agents (and humans)
+- [meta-ads-open-cli](https://github.com/Bin-Huang/meta-ads-open-cli) -- Meta Ads CLI & Skills for AI agents (and humans)
+- [microsoft-ads-cli](https://github.com/Bin-Huang/microsoft-ads-cli) -- Microsoft Ads CLI & Skills for AI agents (and humans)
+- [amazon-ads-open-cli](https://github.com/Bin-Huang/amazon-ads-open-cli) -- Amazon Ads CLI & Skills for AI agents (and humans)
+- [tiktok-ads-cli](https://github.com/Bin-Huang/tiktok-ads-cli) -- TikTok Ads CLI & Skills for AI agents (and humans)
+- [linkedin-ads-cli](https://github.com/Bin-Huang/linkedin-ads-cli) -- LinkedIn Ads CLI & Skills for AI agents (and humans)
+- [x-ads-cli](https://github.com/Bin-Huang/x-ads-cli) -- X Ads CLI & Skills for AI agents (and humans)
+- [snapchat-ads-cli](https://github.com/Bin-Huang/snapchat-ads-cli) -- Snapchat Ads CLI & Skills for AI agents (and humans)
+- [pinterest-ads-cli](https://github.com/Bin-Huang/pinterest-ads-cli) -- Pinterest Ads CLI & Skills for AI agents (and humans)
+- [reddit-ads-cli](https://github.com/Bin-Huang/reddit-ads-cli) -- Reddit Ads CLI & Skills for AI agents (and humans)
+- [spotify-ads-cli](https://github.com/Bin-Huang/spotify-ads-cli) -- Spotify Ads CLI & Skills for AI agents (and humans)
+- [apple-ads-cli](https://github.com/Bin-Huang/apple-ads-cli) -- Apple Ads CLI & Skills for AI agents (and humans)
 ## License
 
 MIT

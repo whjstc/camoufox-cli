@@ -1,6 +1,6 @@
 ---
 name: camoufox-cli
-description: Anti-detect browser automation CLI for AI agents. Use when the user needs to interact with websites with bot detection, CAPTCHAs, or anti-bot blocks, including navigating pages, filling forms, clicking buttons, taking screenshots, extracting data, testing web apps, or automating any browser task that requires bypassing fingerprint checks.
+description: Anti-detect browser automation CLI & Skills for AI agents. Use when the user needs to interact with websites with bot detection, CAPTCHAs, or anti-bot blocks, including navigating pages, filling forms, clicking buttons, taking screenshots, extracting data, testing web apps, or automating any browser task that requires bypassing fingerprint checks.
 ---
 
 # Anti-Detect Browser Automation with camoufox-cli
@@ -22,6 +22,7 @@ Every browser automation follows this pattern:
 2. **Snapshot**: `camoufox-cli snapshot -i` (get element refs like `@e1`, `@e2`)
 3. **Interact**: Use refs to click, fill, select
 4. **Re-snapshot**: After navigation or DOM changes, get fresh refs
+5. **Close**: `camoufox-cli close` (close the browser when the entire task is fully complete; keep it open if the user may have follow-up instructions)
 
 ```bash
 camoufox-cli open https://example.com/form
@@ -87,7 +88,7 @@ camoufox-cli text body               # Get all page text (CSS selector)
 camoufox-cli eval "document.title"   # Execute JavaScript
 
 # Capture
-camoufox-cli screenshot              # Screenshot to stdout (base64)
+camoufox-cli screenshot              # Screenshot as JSON {"base64": "..."}
 camoufox-cli screenshot page.png     # Screenshot to file
 camoufox-cli screenshot --full p.png # Full page screenshot
 camoufox-cli pdf output.pdf          # Save page as PDF
@@ -261,7 +262,7 @@ camoufox-cli click @e5              # Navigates away
 camoufox-cli click @e3              # STALE REF - wrong element!
 ```
 
-For detailed ref documentation, see [references/snapshot-refs.md](references/snapshot-refs.md).
+Always take a fresh snapshot before interacting with elements after navigation or page changes.
 
 ## Troubleshooting
 
@@ -312,12 +313,12 @@ camoufox-cli snapshot -i
 --headed               Show browser window (default: headless)
 --timeout <seconds>    Daemon idle timeout (default: 1800)
 --json                 Output as JSON instead of human-readable
---persistent <path>    Use persistent browser profile directory
+--persistent [path]    Use persistent browser profile (default: ~/.camoufox-cli/profiles/<session>)
+--proxy <url>          Proxy server (http:// or https://; auth: http://user:pass@host:port)
+--no-geoip             Disable automatic GeoIP spoofing (auto-enabled with --proxy)
+--locale <tag>         Force browser locale (e.g. "en-US" or "en-US,zh-CN")
 ```
 
-## Deep-Dive Documentation
+## Documentation
 
-| Reference | When to Use |
-|-----------|-------------|
-| [references/snapshot-refs.md](references/snapshot-refs.md) | Ref lifecycle, invalidation rules, troubleshooting |
-| [references/commands.md](references/commands.md) | Full command reference with all options |
+- [camoufox-cli documentation](https://github.com/Bin-Huang/camoufox-cli) -- Full README, setup guide, installation, and command reference

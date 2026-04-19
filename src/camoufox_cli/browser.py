@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import base64
+
 from camoufox.sync_api import Camoufox
 from playwright.sync_api import BrowserContext, Page
 
+from .proxy import parse_proxy_settings
 from .refs import RefRegistry
 
 
@@ -20,13 +23,16 @@ def _ensure_browser_installed() -> None:
 
 
 class BrowserManager:
-    def __init__(self, persistent: str | None = None):
+    def __init__(self, persistent: str | None = None, proxy: str | None = None, geoip: bool = True, locale: str | None = None):
         self._camoufox: Camoufox | None = None
         self._context: BrowserContext | None = None
         self._page: Page | None = None
         self.refs = RefRegistry()
         self._headless: bool = True
         self._persistent = persistent
+        self._proxy = proxy
+        self._geoip = geoip
+        self._locale = locale
         # Camoufox spoofs history API for anti-fingerprinting,
         # so we track navigation history ourselves.
         self._history: list[str] = []
@@ -40,6 +46,17 @@ class BrowserManager:
         _ensure_browser_installed()
 
         kwargs: dict = {"headless": headless}
+        proxy_settings: dict | None = None
+        if self._proxy:
+            proxy_settings = parse_proxy_settings(self._proxy)
+            kwargs["proxy"] = proxy_settings
+            if self._geoip:
+                kwargs["geoip"] = True
+        if self._locale:
+            # Accept "en-US" or a comma-separated list "en-US,en,zh-CN".
+            locales = [s.strip() for s in self._locale.split(",") if s.strip()]
+            if locales:
+                kwargs["locale"] = locales if len(locales) > 1 else locales[0]
         if self._persistent:
             kwargs["persistent_context"] = True
             kwargs["user_data_dir"] = self._persistent
@@ -56,6 +73,16 @@ class BrowserManager:
             # Normal mode: result is Browser, new_page() creates default context + page
             self._page = result.new_page()
             self._context = self._page.context
+
+        # Workaround: Playwright's Firefox (Juggler) fails proxy auth on HTTPS
+        # CONNECT tunnels, raising NS_ERROR_PROXY_AUTHENTICATION_FAILED.
+        # Inject Basic auth as an extra HTTP header like WebKit/Chromium do.
+        if proxy_settings and proxy_settings.get("username"):
+            creds = f"{proxy_settings['username']}:{proxy_settings.get('password', '')}"
+            token = base64.b64encode(creds.encode()).decode()
+            self._context.set_extra_http_headers(
+                {"Proxy-Authorization": f"Basic {token}"}
+            )
 
     def get_page(self) -> Page:
         if self._page is None:

@@ -40,17 +40,12 @@ export class DaemonServer {
       }
     }, 10000);
 
-    // Signal handlers — all trigger graceful shutdown
+    // Signal handlers
     const gracefulShutdown = (signal: string) => {
       if (this.isShuttingDown) return;
       this.isShuttingDown = true;
       process.stderr.write(`[camoufox-cli] Received ${signal}, shutting down\n`);
       this.server?.close();
-      // Force exit after 5s if graceful shutdown hangs
-      setTimeout(() => {
-        process.stderr.write("[camoufox-cli] Force exit after timeout\n");
-        process.exit(0);
-      }, 5000);
     };
     process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
     process.on("SIGINT", () => gracefulShutdown("SIGINT"));
@@ -122,7 +117,7 @@ export class DaemonServer {
           process.stderr.write(`[camoufox-cli] Daemon already running (pid ${pid})\n`);
           process.exit(1);
         } catch {
-          // Stale pid — kill any remaining browser processes for this session
+          // Stale pid — try to kill leftover process group
           try {
             const stalePid = parseInt(fs.readFileSync(this.pidPath, "utf-8").trim(), 10);
             try { process.kill(-stalePid, "SIGKILL"); } catch {}
@@ -132,9 +127,7 @@ export class DaemonServer {
       }
       fs.unlinkSync(this.socketPath);
     }
-    // Clean stale pid file
     try { fs.unlinkSync(this.pidPath); } catch {}
-    // Clean profile lock files if persistent mode
     this.cleanupProfileLocks();
   }
 
@@ -154,13 +147,11 @@ export class DaemonServer {
     }
   }
 
-  /** Synchronous cleanup — called from process.on("exit") as last resort. */
+  /** Synchronous cleanup — called from uncaught/unhandled/fatal in daemon.ts. */
   syncCleanup(): void {
-    // Remove socket and pid files
     for (const p of [this.socketPath, this.pidPath]) {
       try { fs.unlinkSync(p); } catch {}
     }
-    // Remove profile lock files
     this.cleanupProfileLocks();
   }
 
