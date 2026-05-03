@@ -1,6 +1,6 @@
 /** Command implementations for the daemon. */
 
-import type { Locator } from "playwright-core";
+import type { ConsoleMessage, Locator, Page, Request, Response as PlaywrightResponse } from "playwright-core";
 import { BrowserManager } from "./browser.js";
 import { okResponse, errorResponse, type Response } from "./protocol.js";
 
@@ -16,6 +16,179 @@ function resolveRef(manager: BrowserManager, refStr: string): Locator {
   return locator.nth(entry.nth);
 }
 
+async function ensureLaunched(manager: BrowserManager, headless: unknown): Promise<void> {
+  if (manager.isRunning) return;
+  // If browser disconnected (crashed), clean up before re-launching
+  if (manager.isDisconnected) {
+    process.stderr.write(`[camoufox-cli] Browser was disconnected (${manager.disconnectReason}), re-launching\n`);
+    await manager.close();
+  }
+  await manager.launch((headless === undefined ? "headless" : headless === true ? "headless" : headless === false ? "headed" : "virtual") as any);
+}
+
+type AnalyzeEvent =
+  | {
+      type: "request";
+      ts: string;
+      method: string;
+      url: string;
+      resourceType: string;
+      postData?: string | null;
+      headers?: Record<string, string>;
+    }
+  | {
+      type: "response";
+      ts: string;
+      url: string;
+      status: number;
+      statusText: string;
+      resourceType: string;
+      fromServiceWorker: boolean;
+      headers?: Record<string, string>;
+    }
+  | {
+      type: "requestfailed";
+      ts: string;
+      method: string;
+      url: string;
+      resourceType: string;
+      failure: string | null;
+    }
+  | {
+      type: "console";
+      ts: string;
+      level: string;
+      text: string;
+      location: ReturnType<ConsoleMessage["location"]>;
+    }
+  | {
+      type: "pageerror";
+      ts: string;
+      message: string;
+      stack?: string;
+    }
+  | {
+      type: "websocket";
+      ts: string;
+      url: string;
+    };
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function truncate(value: string | null, limit: number): string | null {
+  if (value === null) return null;
+  if (value.length <= limit) return value;
+  return `${value.slice(0, limit)}...<truncated ${value.length - limit} chars>`;
+}
+
+function summarizeAnalyzeEvents(events: AnalyzeEvent[]) {
+  const byStatus: Record<string, number> = {};
+  const byResourceType: Record<string, number> = {};
+  const consoleByLevel: Record<string, number> = {};
+  let requests = 0;
+  let responses = 0;
+  let failedRequests = 0;
+  let pageErrors = 0;
+  let websockets = 0;
+
+  for (const event of events) {
+    if (event.type === "request") {
+      requests++;
+      byResourceType[event.resourceType] = (byResourceType[event.resourceType] ?? 0) + 1;
+    } else if (event.type === "response") {
+      responses++;
+      const bucket = `${Math.floor(event.status / 100)}xx`;
+      byStatus[bucket] = (byStatus[bucket] ?? 0) + 1;
+    } else if (event.type === "requestfailed") {
+      failedRequests++;
+    } else if (event.type === "console") {
+      consoleByLevel[event.level] = (consoleByLevel[event.level] ?? 0) + 1;
+    } else if (event.type === "pageerror") {
+      pageErrors++;
+    } else if (event.type === "websocket") {
+      websockets++;
+    }
+  }
+
+  return { requests, responses, byStatus, byResourceType, failedRequests, consoleByLevel, pageErrors, websockets };
+}
+
+function attachAnalysisListeners(page: Page, events: AnalyzeEvent[], opts: { includeHeaders: boolean; bodyLimit: number }) {
+  const onRequest = (request: Request) => {
+    const event: AnalyzeEvent = {
+      type: "request",
+      ts: nowIso(),
+      method: request.method(),
+      url: request.url(),
+      resourceType: request.resourceType(),
+    };
+    if (opts.bodyLimit > 0) event.postData = truncate(request.postData(), opts.bodyLimit);
+    if (opts.includeHeaders) event.headers = request.headers();
+    events.push(event);
+  };
+  const onResponse = (response: PlaywrightResponse) => {
+    const event: AnalyzeEvent = {
+      type: "response",
+      ts: nowIso(),
+      url: response.url(),
+      status: response.status(),
+      statusText: response.statusText(),
+      resourceType: response.request().resourceType(),
+      fromServiceWorker: response.fromServiceWorker(),
+    };
+    if (opts.includeHeaders) event.headers = response.headers();
+    events.push(event);
+  };
+  const onRequestFailed = (request: Request) => {
+    events.push({
+      type: "requestfailed",
+      ts: nowIso(),
+      method: request.method(),
+      url: request.url(),
+      resourceType: request.resourceType(),
+      failure: request.failure()?.errorText ?? null,
+    });
+  };
+  const onConsole = (message: ConsoleMessage) => {
+    events.push({
+      type: "console",
+      ts: nowIso(),
+      level: message.type(),
+      text: message.text(),
+      location: message.location(),
+    });
+  };
+  const onPageError = (error: Error) => {
+    events.push({
+      type: "pageerror",
+      ts: nowIso(),
+      message: error.message,
+      stack: error.stack,
+    });
+  };
+  const onWebSocket = (webSocket: { url(): string }) => {
+    events.push({ type: "websocket", ts: nowIso(), url: webSocket.url() });
+  };
+
+  page.on("request", onRequest);
+  page.on("response", onResponse);
+  page.on("requestfailed", onRequestFailed);
+  page.on("console", onConsole);
+  page.on("pageerror", onPageError);
+  page.on("websocket", onWebSocket as any);
+
+  return () => {
+    page.off("request", onRequest);
+    page.off("response", onResponse);
+    page.off("requestfailed", onRequestFailed);
+    page.off("console", onConsole);
+    page.off("pageerror", onPageError);
+    page.off("websocket", onWebSocket as any);
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Navigation
 // ---------------------------------------------------------------------------
@@ -24,9 +197,7 @@ const cmdOpen: Handler = async (manager, cmdId, params) => {
   const url = params.url as string;
   if (!url) return errorResponse(cmdId, "Missing 'url' parameter");
 
-  if (!manager.isRunning) {
-    await manager.launch((params.headless === undefined ? "headless" : params.headless === true ? "headless" : params.headless === false ? "headed" : "virtual") as any);
-  }
+  await ensureLaunched(manager, params.headless);
 
   try {
     const page = manager.getPage();
@@ -196,6 +367,44 @@ const cmdEval: Handler = async (manager, cmdId, params) => {
   return okResponse(cmdId, { result });
 };
 
+const cmdAnalyze: Handler = async (manager, cmdId, params) => {
+  const url = params.url as string;
+  if (!url) return errorResponse(cmdId, "Missing 'url' parameter");
+
+  const waitMs = Number(params.wait_ms ?? 3000);
+  const includeHeaders = Boolean(params.include_headers ?? false);
+  const bodyLimit = Number(params.body_limit ?? 0);
+  const outputPath = params.output_path as string | undefined;
+
+  await ensureLaunched(manager, params.headless);
+  const page = manager.getPage();
+  const events: AnalyzeEvent[] = [];
+  const detach = attachAnalysisListeners(page, events, { includeHeaders, bodyLimit });
+
+  try {
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+    manager.pushHistory(page.url());
+    if (waitMs > 0) await page.waitForTimeout(waitMs);
+  } finally {
+    detach();
+  }
+
+  const result = {
+    url: page.url(),
+    title: await page.title(),
+    capturedAt: nowIso(),
+    waitMs,
+    summary: summarizeAnalyzeEvents(events),
+    events,
+  };
+
+  if (outputPath) {
+    writeFileSync(outputPath, JSON.stringify(result, null, 2));
+  }
+
+  return okResponse(cmdId, outputPath ? { ...result, outputPath } : result);
+};
+
 const cmdScreenshot: Handler = async (manager, cmdId, params) => {
   const page = manager.getPage();
   const path = params.path as string | undefined;
@@ -337,6 +546,7 @@ const HANDLERS: Record<string, Handler> = {
   upload: cmdUpload,
   text: cmdText,
   eval: cmdEval,
+  analyze: cmdAnalyze,
   screenshot: cmdScreenshot,
   pdf: cmdPdf,
   scroll: cmdScroll,
