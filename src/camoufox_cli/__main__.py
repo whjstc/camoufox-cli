@@ -12,7 +12,7 @@ def main():
     parser.add_argument("--headless", action="store_true", default=True, help="Run headless (default)")
     parser.add_argument("--headed", action="store_true", help="Show browser window")
     parser.add_argument("--timeout", type=int, default=1800, help="Idle timeout in seconds")
-    parser.add_argument("--persistent", default=None, help="Path for persistent browser profile")
+    parser.add_argument("--persistent", default=None, help="Path for persistent identity + browser profile")
     parser.add_argument("--proxy", default=None, help="Proxy server URL")
     parser.add_argument("--no-geoip", dest="geoip", action="store_false", default=True, help="Disable automatic GeoIP spoofing when using a proxy")
     parser.add_argument("--locale", default=None, help="Force browser locale (e.g. 'en-US' or 'en-US,zh-CN')")

@@ -313,11 +313,17 @@ camoufox-cli snapshot -i
 --headed               Show browser window (default: headless)
 --timeout <seconds>    Daemon idle timeout (default: 1800)
 --json                 Output as JSON instead of human-readable
---persistent [path]    Use persistent browser profile (default: ~/.camoufox-cli/profiles/<session>)
+--persistent [path]    Persistent identity + browser profile (default: ~/.camoufox-cli/profiles/<session>)
 --proxy <url>          Proxy server (http:// or https://; auth: http://user:pass@host:port)
 --no-geoip             Disable automatic GeoIP spoofing (auto-enabled with --proxy)
 --locale <tag>         Force browser locale (e.g. "en-US" or "en-US,zh-CN")
 ```
+
+## Persistent Identity
+
+Use `--persistent [path]` for account-bound tasks where cookies alone are not enough and the same browser profile should also keep the same device fingerprint. The first launch stores fingerprint, OS, canvas/font seeds, locale, and proxy-derived timezone/geolocation in `<path>/camoufox-cli.json`; later launches reload it. Delete the directory to reset.
+
+`--locale` updates the stored locale when passed. `--proxy` with GeoIP enabled refreshes stored timezone/geolocation from the proxy IP. `--proxy` and `--no-geoip` are not stored, so pass them on each launch where they should apply.
 
 ## Documentation
 

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import base64
+import os
 
 from camoufox.sync_api import Camoufox
 from playwright.sync_api import BrowserContext, Page
 
+from .identity import load_or_create, to_launch_kwargs
 from .proxy import parse_proxy_settings
 from .refs import RefRegistry
 
@@ -52,14 +54,22 @@ class BrowserManager:
             kwargs["proxy"] = proxy_settings
             if self._geoip:
                 kwargs["geoip"] = True
-        if self._locale:
+        if self._persistent:
+            os.makedirs(self._persistent, exist_ok=True)
+            identity = load_or_create(
+                self._persistent,
+                locale=self._locale,
+                proxy=self._proxy,
+                geoip=self._geoip,
+            )
+            kwargs.update(to_launch_kwargs(identity))
+            kwargs["persistent_context"] = True
+            kwargs["user_data_dir"] = self._persistent
+        elif self._locale:
             # Accept "en-US" or a comma-separated list "en-US,en,zh-CN".
             locales = [s.strip() for s in self._locale.split(",") if s.strip()]
             if locales:
                 kwargs["locale"] = locales if len(locales) > 1 else locales[0]
-        if self._persistent:
-            kwargs["persistent_context"] = True
-            kwargs["user_data_dir"] = self._persistent
 
         self._camoufox = Camoufox(**kwargs)
         result = self._camoufox.__enter__()
