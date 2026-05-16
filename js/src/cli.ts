@@ -15,6 +15,58 @@ export function getSocketPath(session: string): string {
   return `${SOCKET_PREFIX}${session}.sock`;
 }
 
+export function getPidPath(session: string): string {
+  return `${SOCKET_PREFIX}${session}.pid`;
+}
+
+/** Kill existing daemon for this session (by PID file + process group). */
+function killExistingDaemon(session: string): void {
+  const pidPath = getPidPath(session);
+  const sockPath = getSocketPath(session);
+  if (!fs.existsSync(pidPath) && !fs.existsSync(sockPath)) return;
+
+  if (fs.existsSync(pidPath)) {
+    try {
+      const pid = parseInt(fs.readFileSync(pidPath, "utf-8").trim(), 10);
+      if (pid > 0) {
+        // Try graceful first, then force kill process group
+        try { process.kill(pid, "SIGTERM"); } catch {}
+        setTimeout(() => {
+          try { process.kill(-pid, "SIGKILL"); } catch {}
+          try { process.kill(pid, "SIGKILL"); } catch {}
+        }, 500);
+      }
+    } catch {}
+  }
+
+  // Wait briefly for cleanup, then clean stale files
+  const cleanFiles = () => {
+    try { fs.unlinkSync(pidPath); } catch {}
+    try { fs.unlinkSync(sockPath); } catch {}
+  };
+  setTimeout(cleanFiles, 800);
+}
+
+/** Wait until daemon is fully gone (socket + pid removed). */
+function waitForDaemonGone(session: string, maxMs = 3000): Promise<void> {
+  const sockPath = getSocketPath(session);
+  const pidPath = getPidPath(session);
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const check = () => {
+      if (!fs.existsSync(sockPath) && !fs.existsSync(pidPath)) return resolve();
+      if (Date.now() - start > maxMs) {
+        // Force clean stale files
+        try { fs.unlinkSync(sockPath); } catch {}
+        try { fs.unlinkSync(pidPath); } catch {}
+        return resolve();
+      }
+      setTimeout(check, 100);
+    };
+    check();
+  });
+}
+
 function sendCommand(sockPath: string, command: Record<string, unknown>): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const client = net.createConnection(sockPath, () => {
@@ -31,17 +83,28 @@ function sendCommand(sockPath: string, command: Record<string, unknown>): Promis
   });
 }
 
-function spawnDaemon(session: string, displayMode: DisplayMode, timeout: number, persistent: string | null, proxy: string | null = null, geoip: boolean = true, locale: string | null = null): Promise<void> {
+function spawnDaemon(
+  session: string,
+  displayMode: DisplayMode,
+  timeout: number,
+  persistent: string | null,
+  proxy: string | null = null,
+  geoip: boolean = true,
+  locale: string | null = null,
+  timezone: string | null = null,
+  fonts: string[] | null = null,
+): Promise<void> {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const daemonPath = path.join(__dirname, "daemon.js");
-
   const args = ["--session", session, "--display-mode", displayMode, "--timeout", String(timeout)];
   if (persistent) args.push("--persistent", persistent);
   if (proxy) args.push("--proxy", proxy);
   if (!geoip) args.push("--no-geoip");
   if (locale) args.push("--locale", locale);
+  if (timezone) args.push("--timezone", timezone);
+  if (fonts?.length) args.push("--fonts", fonts.join(","));
 
-  spawn("node", [daemonPath, ...args], {
+  spawn(process.execPath, [daemonPath, ...args], {
     detached: true,
     stdio: "ignore",
   }).unref();
@@ -59,7 +122,17 @@ function spawnDaemon(session: string, displayMode: DisplayMode, timeout: number,
   });
 }
 
-async function ensureDaemon(session: string, displayMode: DisplayMode, timeout: number, persistent: string | null, proxy: string | null = null, geoip: boolean = true, locale: string | null = null): Promise<void> {
+async function ensureDaemon(
+  session: string,
+  displayMode: DisplayMode,
+  timeout: number,
+  persistent: string | null,
+  proxy: string | null = null,
+  geoip: boolean = true,
+  locale: string | null = null,
+  timezone: string | null = null,
+  fonts: string[] | null = null,
+): Promise<void> {
   const sockPath = getSocketPath(session);
   if (fs.existsSync(sockPath)) {
     // Verify daemon is alive
@@ -69,12 +142,18 @@ async function ensureDaemon(session: string, displayMode: DisplayMode, timeout: 
         s.on("error", reject);
         s.setTimeout(2000, () => { s.destroy(); reject(new Error("timeout")); });
       });
-      return;
+      return; // Daemon alive, reuse it
     } catch {
-      try { fs.unlinkSync(sockPath); } catch {}
+      // Socket stale — kill existing daemon before spawning new one
+      killExistingDaemon(session);
+      await waitForDaemonGone(session);
     }
+  } else if (fs.existsSync(getPidPath(session))) {
+    // No socket but PID file exists — zombie daemon, kill it
+    killExistingDaemon(session);
+    await waitForDaemonGone(session);
   }
-  await spawnDaemon(session, displayMode, timeout, persistent, proxy, geoip, locale);
+  await spawnDaemon(session, displayMode, timeout, persistent, proxy, geoip, locale, timezone, fonts);
 }
 
 export function listSessions(): string[] {
@@ -102,10 +181,12 @@ export interface Flags {
   proxy: string | null;
   geoip: boolean;
   locale: string | null;
+  timezone: string | null;
+  fonts: string[] | null;
 }
 
 export function parseArgs(argv: string[]): { flags: Flags; command: Record<string, unknown> } {
-  const flags: Flags = { session: "default", displayMode: "headless", timeout: 1800, json: false, persistent: null, proxy: null, geoip: true, locale: null };
+  const flags: Flags = { session: "default", displayMode: "headless", timeout: 1800, json: false, persistent: null, proxy: null, geoip: true, locale: null, timezone: null, fonts: null };
   const rest: string[] = [];
 
   let i = 0;
@@ -155,6 +236,14 @@ export function parseArgs(argv: string[]): { flags: Flags; command: Record<strin
       case "--locale":
         flags.locale = argv[++i] ?? (process.stderr.write("Error: --locale requires a value\n"), process.exit(1), "");
         break;
+      case "--timezone":
+        flags.timezone = argv[++i] ?? (process.stderr.write("Error: --timezone requires a value\n"), process.exit(1), "");
+        break;
+      case "--fonts": {
+        const value = argv[++i] ?? (process.stderr.write("Error: --fonts requires a comma-separated value\n"), process.exit(1), "");
+        flags.fonts = value.split(",").map((font) => font.trim()).filter(Boolean);
+        break;
+      }
       default:
         rest.push(argv[i]);
     }
@@ -167,7 +256,22 @@ export function parseArgs(argv: string[]): { flags: Flags; command: Record<strin
   }
 
   const command = buildCommand(rest[0], rest);
+  guardSdrLinkedInSalesOpen(flags, command);
   return { flags, command };
+}
+
+function guardSdrLinkedInSalesOpen(flags: Flags, command: Record<string, unknown>) {
+  if (process.env.CAMOUFOX_ALLOW_SDR_SALES_DIRECT === "1") return;
+  if (flags.session !== "sdr") return;
+  if (command.action !== "open" && command.action !== "analyze") return;
+  const params = command.params as Record<string, unknown> | undefined;
+  const url = String(params?.url ?? "");
+  if (/^https:\/\/www\.linkedin\.com\/sales(\/|$)/i.test(url)) {
+    process.stderr.write(
+      "Blocked unsafe SDR LinkedIn Sales direct open. Open https://www.linkedin.com/feed/ first; never cold-start /sales/*. Set CAMOUFOX_ALLOW_SDR_SALES_DIRECT=1 only after explicit manual approval.\n",
+    );
+    process.exit(2);
+  }
 }
 
 function require_(args: string[], idx: number, usage: string): string {
@@ -226,6 +330,29 @@ export function buildCommand(action: string, rest: string[]): Record<string, unk
       return { id: "r1", action: "text", params: { target: require_(rest, 1, "Usage: camoufox-cli text @e1") } };
     case "eval":
       return { id: "r1", action: "eval", params: { expression: require_(rest, 1, 'Usage: camoufox-cli eval "document.title"') } };
+    case "analyze": {
+      const params: Record<string, unknown> = { url: require_(rest, 1, "Usage: camoufox-cli analyze <url> [--wait ms] [--headers] [--body-limit chars] [--output file.json]") };
+      for (let i = 2; i < rest.length; i++) {
+        switch (rest[i]) {
+          case "--wait":
+            params.wait_ms = parseInt(require_(rest, ++i, "Usage: camoufox-cli analyze <url> --wait <ms>"), 10);
+            break;
+          case "--headers":
+            params.include_headers = true;
+            break;
+          case "--body-limit":
+            params.body_limit = parseInt(require_(rest, ++i, "Usage: camoufox-cli analyze <url> --body-limit <chars>"), 10);
+            break;
+          case "--output":
+            params.output_path = require_(rest, ++i, "Usage: camoufox-cli analyze <url> --output <file.json>");
+            break;
+          default:
+            process.stderr.write(`Unknown analyze option: ${rest[i]}\n`);
+            process.exit(1);
+        }
+      }
+      return { id: "r1", action: "analyze", params };
+    }
     case "screenshot": {
       const params: Record<string, unknown> = {};
       for (const arg of rest.slice(1)) {
@@ -297,6 +424,12 @@ export function printResponse(response: Record<string, unknown>, jsonMode: boole
   } else if ("result" in data) {
     const v = data.result;
     console.log(v === null ? "null" : typeof v === "string" ? v : JSON.stringify(v));
+  } else if ("events" in data && "summary" in data) {
+    const summary = data.summary as Record<string, unknown>;
+    console.log(data.title);
+    console.log(data.url);
+    console.log(JSON.stringify(summary, null, 2));
+    if ("outputPath" in data) console.log(`Saved analysis to ${data.outputPath}`);
   } else if (data.closed) {
     // silent
   } else if ("url" in data) {
@@ -421,7 +554,7 @@ async function main() {
   }
 
   // Ensure daemon is running
-  await ensureDaemon(flags.session, flags.displayMode, flags.timeout, flags.persistent, flags.proxy, flags.geoip, flags.locale);
+  await ensureDaemon(flags.session, flags.displayMode, flags.timeout, flags.persistent, flags.proxy, flags.geoip, flags.locale, flags.timezone, flags.fonts);
 
   const sockPath = getSocketPath(flags.session);
 
@@ -469,6 +602,11 @@ Interaction:
 Data:
   text @ref|selector      Get text content
   eval "js expression"    Execute JavaScript
+  analyze <url>           Capture network, console, page errors, and websockets
+    --wait <ms>           Wait after DOMContentLoaded before ending capture (default 3000)
+    --headers             Include request/response headers
+    --body-limit <chars>  Include truncated request post bodies
+    --output <file.json>  Save full analysis JSON
   screenshot [--full] [f] Screenshot to file or stdout
   pdf <file>              Save page as PDF
 
@@ -494,10 +632,12 @@ Flags:
   --display-mode <m>   Browser mode: headless | headed | virtual
   --timeout <secs>     Daemon idle timeout (default: 1800)
   --json               Output as JSON
-  --persistent [path]  Use persistent browser profile (default: ~/.camoufox-cli/profiles/<session>)
+  --persistent [path]  Persistent identity + browser profile (default: ~/.camoufox-cli/profiles/<session>)
   --proxy <url>        Proxy server (e.g. http://host:port or https://host:443)
   --no-geoip           Disable automatic GeoIP spoofing (auto-enabled with --proxy)
-  --locale <tag>       Force browser locale (e.g. "en-US" or "en-US,zh-CN")`;
+  --locale <tag>       Force browser locale (e.g. "en-US" or "en-US,zh-CN")
+  --timezone <tz>      Force browser timezone (e.g. "America/Los_Angeles")
+  --fonts <names>      Comma-separated extra font families to add to Camoufox`;
 
 export function isDirectRun(argv1: string | undefined, importMetaUrl: string, realPathFn = fs.realpathSync): boolean {
   if (!argv1) return false;

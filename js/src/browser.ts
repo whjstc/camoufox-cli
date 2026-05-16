@@ -11,6 +11,19 @@ import { parseProxySettings } from "./proxy.js";
 import { RefRegistry } from "./refs.js";
 import type { DisplayMode } from "./types.js";
 
+const DEFAULT_CJK_FONTS = [
+  "Hiragino Sans GB",
+  "STHeiti",
+  "Heiti SC",
+  "Songti SC",
+  "PingFang SC",
+  "Noto Sans CJK SC",
+  "Noto Sans SC",
+  "Source Han Sans SC",
+  "Microsoft YaHei",
+  "SimSun",
+];
+
 function ensureBrowserInstalled(): void {
   try {
     execFileSync("npx", ["camoufox-js", "path"], { stdio: "pipe" });
@@ -31,17 +44,26 @@ export class BrowserManager {
   private geoip: boolean;
   private locale: string | null;
   private timezone: string | null;
+  private fonts: string[] | null;
   private history: string[] = [];
   private historyIndex = -1;
   private _disconnected = false;
   private _disconnectReason: string | null = null;
 
-  constructor(persistent: string | null = null, proxy: string | null = null, geoip: boolean = true, locale: string | null = null, timezone: string | null = null) {
+  constructor(
+    persistent: string | null = null,
+    proxy: string | null = null,
+    geoip: boolean = true,
+    locale: string | null = null,
+    timezone: string | null = null,
+    fonts: string[] | null = null,
+  ) {
     this.persistent = persistent;
     this.proxy = proxy;
     this.geoip = geoip;
     this.locale = locale;
     this.timezone = timezone;
+    this.fonts = fonts;
   }
 
   async launch(displayMode: DisplayMode = "headless"): Promise<void> {
@@ -56,6 +78,7 @@ export class BrowserManager {
     const headless = displayMode === "headless" ? true : displayMode === "headed" ? false : "virtual";
 
     const launchOpts: Record<string, unknown> = { headless };
+    this.applyFontOverrides(launchOpts);
     let proxySettings: { server: string; username?: string; password?: string } | null = null;
 
     if (this.proxy) {
@@ -248,6 +271,11 @@ export class BrowserManager {
     if (!this.timezone) return;
     const existingConfig = launchOpts.config as Record<string, unknown> | undefined;
     launchOpts.config = { ...existingConfig, timezone: this.timezone };
+  }
+
+  private applyFontOverrides(launchOpts: Record<string, unknown>): void {
+    const requestedFonts = this.fonts?.length ? this.fonts : DEFAULT_CJK_FONTS;
+    launchOpts.fonts = Array.from(new Set(requestedFonts));
   }
 
   /** Return persistent profile directory path (for lock cleanup). */

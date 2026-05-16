@@ -24,8 +24,12 @@ const persistent = args.includes("--persistent") ? getArg("--persistent", "") ||
 const proxy = args.includes("--proxy") ? getArg("--proxy", "") || null : null;
 const geoip = !args.includes("--no-geoip");
 const locale = args.includes("--locale") ? getArg("--locale", "") || null : null;
+const timezone = args.includes("--timezone") ? getArg("--timezone", "") || null : null;
+const fonts = args.includes("--fonts")
+  ? getArg("--fonts", "").split(",").map((font) => font.trim()).filter(Boolean)
+  : null;
 
-const server = new DaemonServer({ session, displayMode, timeout, persistent, proxy, geoip, locale });
+const server = new DaemonServer({ session, displayMode, timeout, persistent, proxy, geoip, locale, timezone, fonts });
 
 // Catch uncaught exceptions and unhandled rejections — clean up before exit
 process.on("uncaughtException", (err) => {

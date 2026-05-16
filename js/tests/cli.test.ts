@@ -349,4 +349,14 @@ describe("parseArgs", () => {
     const { flags } = parseArgs(["--locale", "en-US,zh-CN", "open", "https://example.com"]);
     expect(flags.locale).toBe("en-US,zh-CN");
   });
+
+  it("--timezone flag", () => {
+    const { flags } = parseArgs(["--timezone", "America/Los_Angeles", "open", "https://example.com"]);
+    expect(flags.timezone).toBe("America/Los_Angeles");
+  });
+
+  it("--fonts flag", () => {
+    const { flags } = parseArgs(["--fonts", "Hiragino Sans GB, STHeiti", "open", "https://example.com"]);
+    expect(flags.fonts).toEqual(["Hiragino Sans GB", "STHeiti"]);
+  });
 });

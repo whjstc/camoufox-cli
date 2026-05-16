@@ -20,13 +20,13 @@ export class DaemonServer {
   private watchdogTimer: ReturnType<typeof setInterval> | null = null;
   private isShuttingDown = false;
 
-  constructor(opts: { session?: string; displayMode?: DisplayMode; timeout?: number; persistent?: string | null; proxy?: string | null; geoip?: boolean; locale?: string | null }) {
+  constructor(opts: { session?: string; displayMode?: DisplayMode; timeout?: number; persistent?: string | null; proxy?: string | null; geoip?: boolean; locale?: string | null; timezone?: string | null; fonts?: string[] | null }) {
     this.session = opts.session ?? "default";
     this.displayMode = opts.displayMode ?? "headless";
     this.timeout = opts.timeout ?? 1800;
     this.socketPath = `/tmp/camoufox-cli-${this.session}.sock`;
     this.pidPath = `/tmp/camoufox-cli-${this.session}.pid`;
-    this.manager = new BrowserManager(opts.persistent ?? null, opts.proxy ?? null, opts.geoip ?? true, opts.locale ?? null);
+    this.manager = new BrowserManager(opts.persistent ?? null, opts.proxy ?? null, opts.geoip ?? true, opts.locale ?? null, opts.timezone ?? null, opts.fonts ?? null);
   }
 
   async start(): Promise<void> {
@@ -85,7 +85,7 @@ export class DaemonServer {
       try {
         const command = parseCommand(line);
 
-        if (command.action === "open") {
+        if (command.action === "open" || command.action === "analyze") {
           command.params.headless ??= this.displayMode === "headless" ? true : this.displayMode === "headed" ? false : "virtual";
         }
 
