@@ -42,6 +42,7 @@ class DaemonServer:
         self._server_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
             self._server_socket.bind(self.socket_path)
+            os.chmod(self.socket_path, 0o600)  # Restrict to owner only
             self._server_socket.listen(5)
             self._server_socket.settimeout(1.0)  # allow periodic checks
 
